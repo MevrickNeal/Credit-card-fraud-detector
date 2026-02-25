@@ -1,127 +1,161 @@
-from flask import Flask, request, jsonify
-import pandas as pd
+from flask import Flask, request, jsonify, render_template_string
 import numpy as np
+import pandas as pd
 import xgboost as xgb
-from sklearn.ensemble import RandomForestClassifier, IsolationForest
-import shap
-import lime.lime_tabular
-from river import drift  # Handles DDM and ADWIN
-import warnings
-warnings.filterwarnings('ignore')
+from sklearn.ensemble import IsolationForest
+import time
 
 app = Flask(__name__)
 
-# =====================================================================
-# 1. INITIALIZE DRIFT DETECTION (ADWIN & DDM) [Source: 11.pdf]
-# =====================================================================
-# ADWIN (Adaptive Windowing) and DDM (Drift Detection Method) monitor 
-# real-time transaction streams for sudden changes in fraud patterns.
-adwin_detector = drift.ADWIN()
-ddm_detector = drift.DDM()
-
-# =====================================================================
-# 2. LOAD PRE-TRAINED THESIS MODELS (HMLF) [Source: 11.pdf, 7.pdf]
-# =====================================================================
-# In a real environment, you use joblib to load these. For this API, 
-# we initialize the architecture exactly as described in the research.
-
-# A. Supervised Ensemble (Trained with SMOTEBoost & Cost-Sensitive Learning)
-xgb_model = xgb.XGBClassifier(scale_pos_weight=97) # Penalizes missed fraud
-rf_model = RandomForestClassifier(n_estimators=100)
-
-# B. Unsupervised Anomaly Detector (For Zero-Day/Novel Fraud)
+# 1. INITIALIZE DUMMY MODELS (For live deployment, load your .pkl models here)
+# We use the Hybrid Architecture recommended for real-time <3ms latency
+xgb_model = xgb.XGBClassifier(scale_pos_weight=97)
 iso_forest = IsolationForest(contamination=0.01)
 
-# C. Deep Learning & GNN Placeholders (PyTorch logic routed here)
-# Represents the VAE-GAT (Graph Attention Network) and LSTM modules
-def get_deep_learning_score(data):
-    # Simulates the DNN/LSTM behavioral sequence scoring [Source: 7.pdf]
-    return 0.15 
+# 2. THE FRONTEND PAYMENT GATEWAY (HTML/JS)
+# This serves the "Separate Page" where users input card details
+checkout_page = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Secure Payment Gateway</title>
+    <style>
+        body { font-family: Arial; background-color: #f4f4f9; display: flex; justify-content: center; align-items: center; height: 100vh; }
+        .payment-box { background: white; padding: 30px; border-radius: 10px; box-shadow: 0px 4px 10px rgba(0,0,0,0.1); width: 350px; }
+        input { width: 100%; padding: 10px; margin: 10px 0; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box;}
+        button { width: 100%; padding: 10px; background: #28a745; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px;}
+        button:hover { background: #218838; }
+        #status { margin-top: 15px; font-weight: bold; text-align: center; }
+    </style>
+</head>
+<body>
 
-def get_graph_network_score(data):
-    # Simulates Graph Neural Network (GNN) account-device relational scoring [Source: 6.pdf]
-    return 0.10
-
-# D. Adversarial Defense (FraudGAN) [Source: 11.pdf]
-# Transactions are checked against FraudGAN-generated adversarial boundaries
-def check_adversarial_manipulation(data):
-    # Simulates FGSM/PGD perturbation checks
-    return False
-
-# =====================================================================
-# 3. REAL-TIME API ENDPOINT (The "Streaming Layer") [Source: 2.pdf]
-# =====================================================================
-@app.route('/predict_fraud', methods=['POST'])
-def predict_fraud():
-    # 1. Ingest Data (IoT, Behavioral, Demographic, Transactional) [Source: 6.pdf, 7.pdf]
-    raw_data = request.json
+<div class="payment-box">
+    <h2>Complete Your Purchase</h2>
+    <p>Item: <strong>Running Shoes</strong> | Total: <strong>$120.00</strong></p>
     
-    # 2. Extract Features (ETL Pipeline)
-    df = pd.DataFrame([{
-        'transaction_amount': raw_data.get('amount', 0),
-        'typing_speed_ms': raw_data.get('typing_speed', 0), # Behavioral Biometrics
-        'device_geolocation_shift': raw_data.get('geo_shift', 0), # IoT Sensor Data
-        'customer_age': raw_data.get('age', 30), # Demographic
-        'time_since_last_txn': raw_data.get('time_gap', 100)
-    }])
+    <label>Card Number</label>
+    <input type="text" id="cardNumber" placeholder="0000 0000 0000 0000" maxlength="16">
+    
+    <label>CVV</label>
+    <input type="password" id="cvv" placeholder="123" maxlength="3">
+    
+    <button onclick="processPayment()">Pay Now</button>
+    <div id="status"></div>
+</div>
 
-    # 3. Check for Adversarial Attacks (FraudGAN Defense) [2, 4]
-    if check_adversarial_manipulation(df):
-        return jsonify({"status": "BLOCKED", "reason": "Adversarial Perturbation Detected"})
+<script>
+    // BEHAVIORAL BIOMETRICS: Track how fast the user types [Source: 278]
+    let keystrokes = 0;
+    let startTime = null;
 
-    # 4. Generate Hybrid Risk Scores (HMLF) [5]
-    # In a fully trained live app, we would call .predict_proba(df) here.
-    # For the API framework, we aggregate the simulated module scores:
-    
-    supervised_score = 0.85 # Example XGBoost/RF score
-    unsupervised_score = 0.90 # Example Isolation Forest anomaly score
-    dl_score = get_deep_learning_score(df)
-    gnn_score = get_graph_network_score(df)
-    
-    # Weighted Ensemble Voting (Hybrid Model) [6, 7]
-    hybrid_risk_score = (supervised_score * 0.4) + (unsupervised_score * 0.3) + (dl_score * 0.15) + (gnn_score * 0.15)
-    
-    # 5. Concept Drift Management (DDM/ADWIN) [8, 9]
-    # Update drift detectors with the current prediction error proxy
-    is_drift = False
-    adwin_detector.update(hybrid_risk_score)
-    if adwin_detector.drift_detected:
-        is_drift = True
-        # In a real system, this triggers an automated retraining pipeline
+    document.getElementById('cardNumber').addEventListener('keydown', function() {
+        if (keystrokes === 0) startTime = new Date().getTime();
+        keystrokes++;
+    });
 
-    # 6. Explainable AI (XAI) - SHAP & LIME [10, 11]
-    # Provides regulatory compliance by explaining WHY a transaction was flagged
-    top_feature = "device_geolocation_shift" # Simulated SHAP/LIME output feature
-    
-    # 7. Decision & Policy Engine (Human-in-the-Loop) [12, 13]
-    status = "APPROVED"
-    hitl_review_required = False
-    
-    if hybrid_risk_score >= 0.85:
-        status = "BLOCKED"
-    elif 0.65 <= hybrid_risk_score < 0.85:
-        status = "FLAGGED"
-        hitl_review_required = True # Routes to human expert for review [14]
-
-    # 8. Return comprehensive payload (RAG/GenAI Enriched) [15]
-    return jsonify({
-        "transaction_id": raw_data.get('tx_id', 'unknown'),
-        "final_decision": status,
-        "hybrid_risk_score": float(hybrid_risk_score),
-        "requires_human_in_the_loop": hitl_review_required,
-        "concept_drift_detected": is_drift,
-        "explainability_xai": {
-            "primary_suspicious_feature": top_feature,
-            "rationale": f"Transaction flagged due to abnormal {top_feature} compared to historical baseline."
-        },
-        "module_breakdown": {
-            "supervised_xgboost_rf": supervised_score,
-            "unsupervised_isolation_forest": unsupervised_score,
-            "deep_learning_lstm": dl_score,
-            "graph_neural_network": gnn_score
+    async function processPayment() {
+        document.getElementById('status').innerText = "Processing in lightning speed...";
+        document.getElementById('status').style.color = "blue";
+        
+        // Calculate typing speed (milliseconds per keystroke)
+        let typingSpeed = 0;
+        if (keystrokes > 0 && startTime) {
+            let endTime = new Date().getTime();
+            typingSpeed = (endTime - startTime) / keystrokes;
         }
+
+        // Gather Payload (Transaction + Behavioral + Device Data)
+        const payload = {
+            amount: 120.00,
+            card_length: document.getElementById('cardNumber').value.length,
+            typing_speed_ms: typingSpeed,
+            device_os: navigator.platform, // Basic device fingerprinting [Source: 279]
+            time_of_day: new Date().getHours()
+        };
+
+        // Send to AI Backend
+        const response = await fetch('/api/pay', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        const result = await response.json();
+        
+        // Display AI Decision
+        let statusDiv = document.getElementById('status');
+        if (result.decision === 'APPROVED') {
+            statusDiv.innerText = "✅ Payment Approved!";
+            statusDiv.style.color = "green";
+        } else if (result.decision === 'FLAGGED') {
+            statusDiv.innerText = "⚠️ OTP Required (Suspicious Activity)";
+            statusDiv.style.color = "orange";
+        } else {
+            statusDiv.innerText = "❌ Payment Blocked (Fraud Detected)";
+            statusDiv.style.color = "red";
+        }
+        
+        console.log("AI Rationale:", result.explanation);
+    }
+</script>
+
+</body>
+</html>
+"""
+
+@app.route('/')
+def checkout():
+    return render_template_string(checkout_page)
+
+# 3. THE LIGHTNING-SPEED AI DECISION ENGINE [Source: 318, 319]
+@app.route('/api/pay', methods=['POST'])
+def process_payment():
+    start_time = time.time()
+    data = request.json
+    
+    # Extract features sent from the web frontend
+    amount = data.get('amount', 0)
+    typing_speed = data.get('typing_speed_ms', 0)
+    
+    # ---------------------------------------------------------
+    # HYBRID AI LOGIC (Simulated for this demo) [Source: 321]
+    # ---------------------------------------------------------
+    
+    # 1. Rule-Based Check (PCI-DSS/Basic checks)
+    if data.get('card_length') < 16:
+        return jsonify({"decision": "BLOCKED", "explanation": "Invalid Card Length"})
+
+    # 2. Behavioral Biometrics Check [Source: 252, 278]
+    # Fraudsters using copy-paste or bots have a typing speed near 0ms
+    # Normal humans type between 100ms and 400ms per key
+    is_bot = typing_speed < 20 
+    
+    # 3. Supervised Model Score (Known Fraud Patterns)
+    supervised_risk = 0.95 if amount > 5000 else 0.10
+    
+    # 4. Unsupervised Anomaly Score (Zero-Day/Novel Fraud)
+    unsupervised_risk = 0.85 if is_bot else 0.05
+    
+    # 5. Ensemble Voting
+    hybrid_risk_score = (supervised_risk * 0.6) + (unsupervised_risk * 0.4)
+    
+    # 6. Decision Thresholds [Source: 258]
+    if hybrid_risk_score > 0.80:
+        decision = "BLOCKED"
+    elif 0.50 <= hybrid_risk_score <= 0.80:
+        decision = "FLAGGED" # Triggers Step-Up Authentication (OTP)
+    else:
+        decision = "APPROVED"
+
+    processing_time_ms = (time.time() - start_time) * 1000
+
+    return jsonify({
+        "decision": decision,
+        "risk_score": float(hybrid_risk_score),
+        "latency_ms": round(processing_time_ms, 2),
+        "explanation": f"Typing speed was {typing_speed:.2f}ms. Bot suspected: {is_bot}."
     })
 
 if __name__ == '__main__':
-    # Runs the application on port 5000 with sub-second latency
-    app.run(host='0.0.0.0', port=5000)
+    app.run(debug=True, port=5000)
