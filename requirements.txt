@@ -1,0 +1,10 @@
+flask==2.0.1
+pandas
+numpy
+xgboost
+scikit-learn
+shap
+lime
+river  # For DDM and ADWIN Concept Drift Detection
+torch  # For Deep Learning, GNN, and FraudGAN representations
+networkx # For Graph Neural Network connections
