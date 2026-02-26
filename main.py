@@ -19,10 +19,10 @@ app.add_middleware(
 
 # Load the ML Model
 print("Loading XGBoost Model...")
-model = xgb.XGBClassifier()
+model = xgb.Booster()
 model.load_model("payment_fraud_model.json")
 
-# Load the Sandbox Database (We now use this purely as a structural baseline)
+# Load the Sandbox Database
 print("Loading Sandbox Database...")
 with open("sandbox_database.json", "r") as f:
     sandbox_db = json.load(f)
@@ -88,8 +88,9 @@ def process_payment(request: PaymentRequest):
     features_2d = features.reshape(1, -1)
     
     # 4. Real-Time Inference
-    # The AI is now evaluating the unique combination of your random card + amount
-    fraud_probability = model.predict_proba(features_2d)[0][1]
+    # Convert to DMatrix for the native Booster
+    dmatrix = xgb.DMatrix(features_2d)
+    fraud_probability = float(model.predict(dmatrix)[0])
     
     # Apply the optimal threshold we calculated in Kaggle (0.0107)
     is_fraud = bool(fraud_probability >= 0.0107)
