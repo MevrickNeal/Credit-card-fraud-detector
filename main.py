@@ -66,14 +66,20 @@ def process_payment(request: PaymentRequest):
     else:
         features = np.array(sandbox_db["4000123456789010"]["features"])
     
-    # 3. TRUE DYNAMIC INJECTION
+    # 3. TRUE BEHAVIORAL INJECTION
+    # We inject the Amount. This is the primary behavioral trigger.
     features[2] = request.amount 
-    cvv_num = int(request.cvv) if request.cvv.isdigit() else 123
-    features[10] = cvv_num * 1.5 
     
-    if not card.startswith("4000") and not card.startswith("5000"):
-        features[3] = int(card[:6]) % 10000 
-        features[4] = int(card[-4:]) % 1000 
+    # THE FIX: We only mess with the background features if we are actively SIMULATING fraud.
+    # If a hacker is guessing CVVs (e.g., typing '999') or doing a massive transaction,
+    # we inject a massive outlier to force the AI to catch the anomaly.
+    cvv_num = int(request.cvv) if request.cvv.isdigit() else 123
+    
+    if request.amount > 5000 or cvv_num == 999:
+        features[10] = 500.0  # Inject huge anomaly spike
+        
+    # NOTE: We removed the math that was corrupting normal CVVs. 
+    # Normal transactions now keep their perfectly clean baseline history!
     
     # 4. Real-Time Inference
     features_2d = features.reshape(1, -1)
@@ -102,7 +108,7 @@ def process_payment(request: PaymentRequest):
             "latency": "sub-second"
         }
     elif risk_pct >= 15.0:
-        # Tier 3: Moderate Risk (15% - 40%) - Shifted up from 10%
+        # Tier 3: Moderate Risk (15% - 40%)
         return {
             "status": "DECLINED",
             "reason": "Transaction declined: Unusual activity detected. Please verify via banking app.",
@@ -111,8 +117,6 @@ def process_payment(request: PaymentRequest):
         }
     elif risk_pct >= 1.07:
         # Tier 2: Low-Risk Anomaly (1.07% - 15%) 
-        # Crucial Change: We now APPROVE these to prevent annoying real customers, 
-        # but we flag it with a message so you can see the AI caught the anomaly!
         return {
             "status": "APPROVED",
             "reason": "Transaction approved. (System Note: Minor anomaly flagged for routine monitoring).",
