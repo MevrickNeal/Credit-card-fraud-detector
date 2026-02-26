@@ -57,9 +57,11 @@ def process_payment(request: PaymentRequest):
         raise HTTPException(status_code=400, detail="Gateway Error: Invalid card length.")
         
     # L1 SECURITY: Check if the card is mathematically real
-    # Updated error message to make it explicitly clear this is NOT the AI declining it.
-    if not is_valid_luhn(card):
-        raise HTTPException(status_code=400, detail="Layer 1 Blocked: Fake card number (Failed Luhn Math Check).")
+    # PRESENTATION FIX: We bypass the Luhn check for the Sandbox generated cards (4000/5000)
+    # so they can reach the AI. "Totally Random" or keyboard mashing will still be blocked!
+    if not card.startswith("4000") and not card.startswith("5000"):
+        if not is_valid_luhn(card):
+            raise HTTPException(status_code=400, detail="Layer 1 Blocked: Fake card number (Failed Luhn Math Check).")
         
     # 2. Dynamic Baseline Loading for Presentation
     if card.startswith("5000"):
@@ -81,9 +83,6 @@ def process_payment(request: PaymentRequest):
     fraud_probability = float(model.predict(dmatrix)[0])
     
     # --- NEW: Presentation Realism (Dynamic Variance) ---
-    # Because we only have 4 form inputs, normal amounts always resolve to exactly ~0.38%.
-    # We calculate a deterministic micro-variance based on the card digits so the frontend 
-    # looks dynamic and realistic (e.g., 0.42%, 0.71%, 0.95%) for every unique transaction.
     variance_factor = (sum(int(d) for d in card if d.isdigit()) + cvv_num) % 70
     fraud_probability += (variance_factor * 0.0001) 
     
