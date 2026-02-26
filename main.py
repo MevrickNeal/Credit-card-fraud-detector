@@ -56,15 +56,14 @@ def process_payment(request: PaymentRequest):
     if len(card) < 13 or len(card) > 19:
         raise HTTPException(status_code=400, detail="Gateway Error: Invalid card length.")
         
-    # L1 SECURITY: Check if the card is mathematically real
-    # PRESENTATION FIX: We bypass the Luhn check for the Sandbox generated cards (4000/5000)
-    # so they can reach the AI. "Totally Random" or keyboard mashing will still be blocked!
-    if not card.startswith("4000") and not card.startswith("5000"):
-        if not is_valid_luhn(card):
-            raise HTTPException(status_code=400, detail="Layer 1 Blocked: Fake card number (Failed Luhn Math Check).")
+    # L1 SECURITY: STRICT LUHN CHECK (Loophole Closed!)
+    # Every single card MUST pass the mathematical check. No exceptions or bypasses.
+    if not is_valid_luhn(card):
+        raise HTTPException(status_code=400, detail="Layer 1 Blocked: Fake card number (Failed Luhn Math Check).")
         
     # 2. Dynamic Baseline Loading for Presentation
-    if card.startswith("5000"):
+    # Only mathematically valid cards make it to this step now.
+    if card.startswith("5"):
         features = np.array(sandbox_db["5000987654321098"]["features"])
     else:
         features = np.array(sandbox_db["4000123456789010"]["features"])
