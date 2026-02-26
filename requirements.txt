@@ -1,10 +1,5 @@
-flask==2.0.1
-pandas
-numpy
-xgboost
-scikit-learn
-shap
-lime
-river  # For DDM and ADWIN Concept Drift Detection
-torch  # For Deep Learning, GNN, and FraudGAN representations
-networkx # For Graph Neural Network connections
+fastapi==0.104.1
+uvicorn==0.24.0
+xgboost==2.0.2
+pydantic==2.4.2
+numpy==1.26.2
