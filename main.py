@@ -83,8 +83,7 @@ def process_payment(request: PaymentRequest):
     # Convert to percentage for easier reading in the code
     risk_pct = fraud_probability * 100
     
-    # 5. HIGHLY INTELLIGENT TIERED RESPONSES (Bank-Grade UX)
-    # Notice: The word "Fraud" is completely removed from customer-facing messages.
+    # 5. HIGHLY INTELLIGENT TIERED RESPONSES (Business Logic Applied)
     
     if risk_pct >= 85.0:
         # Tier 5: Critical Risk (e.g., 90%+)
@@ -102,8 +101,8 @@ def process_payment(request: PaymentRequest):
             "risk_score": fraud_probability,
             "latency": "sub-second"
         }
-    elif risk_pct >= 10.0:
-        # Tier 3: Moderate Risk (10% - 40%)
+    elif risk_pct >= 15.0:
+        # Tier 3: Moderate Risk (15% - 40%) - Shifted up from 10%
         return {
             "status": "DECLINED",
             "reason": "Transaction declined: Unusual activity detected. Please verify via banking app.",
@@ -111,10 +110,12 @@ def process_payment(request: PaymentRequest):
             "latency": "sub-second"
         }
     elif risk_pct >= 1.07:
-        # Tier 2: The Soft Limit (1.07% - 10%) - Based on your Kaggle threshold!
+        # Tier 2: Low-Risk Anomaly (1.07% - 15%) 
+        # Crucial Change: We now APPROVE these to prevent annoying real customers, 
+        # but we flag it with a message so you can see the AI caught the anomaly!
         return {
-            "status": "DECLINED",
-            "reason": "Additional verification required. Step-up authentication triggered.",
+            "status": "APPROVED",
+            "reason": "Transaction approved. (System Note: Minor anomaly flagged for routine monitoring).",
             "risk_score": fraud_probability,
             "latency": "sub-second"
         }
