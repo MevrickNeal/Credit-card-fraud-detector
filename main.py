@@ -6,7 +6,7 @@ import json
 import numpy as np
 
 # Initialize FastAPI
-app = FastAPI(title="Fraud Detection Gateway API")
+app = FastAPI(title="Intelligent Payment Gateway API")
 
 app.add_middleware(
     CORSMiddleware,
@@ -61,8 +61,6 @@ def process_payment(request: PaymentRequest):
         raise HTTPException(status_code=400, detail="Card declined: Invalid credit card number.")
         
     # 2. Dynamic Baseline Loading for Presentation
-    # If it's a 5000-series card, load the fraud baseline history. 
-    # Otherwise, assume it's a normal card baseline history.
     if card.startswith("5000"):
         features = np.array(sandbox_db["5000987654321098"]["features"])
     else:
@@ -73,8 +71,6 @@ def process_payment(request: PaymentRequest):
     cvv_num = int(request.cvv) if request.cvv.isdigit() else 123
     features[10] = cvv_num * 1.5 
     
-    # If it's a totally random card (not from our sandbox 4000/5000 buttons), 
-    # inject the raw card features to let the AI calculate entirely from scratch
     if not card.startswith("4000") and not card.startswith("5000"):
         features[3] = int(card[:6]) % 10000 
         features[4] = int(card[-4:]) % 1000 
@@ -84,25 +80,46 @@ def process_payment(request: PaymentRequest):
     dmatrix = xgb.DMatrix(features_2d)
     fraud_probability = float(model.predict(dmatrix)[0])
     
-    # 5. TIERED RESPONSES (UX Improvement)
-    # Tier 3: Hard Fraud (Greater than 50% AI Confidence)
-    if fraud_probability >= 0.50:
+    # Convert to percentage for easier reading in the code
+    risk_pct = fraud_probability * 100
+    
+    # 5. HIGHLY INTELLIGENT TIERED RESPONSES (Bank-Grade UX)
+    # Notice: The word "Fraud" is completely removed from customer-facing messages.
+    
+    if risk_pct >= 85.0:
+        # Tier 5: Critical Risk (e.g., 90%+)
         return {
             "status": "DECLINED",
-            "reason": "High risk of fraud detected. Card blocked.",
+            "reason": "Critical Security Alert: Card restricted to prevent unauthorized access.",
             "risk_score": fraud_probability,
             "latency": "sub-second"
         }
-    # Tier 2: Soft Decline (Between 1% and 50% AI Confidence)
-    elif fraud_probability >= 0.0107:
+    elif risk_pct >= 40.0:
+        # Tier 4: High Risk (40% - 85%)
         return {
             "status": "DECLINED",
-            "reason": "Unusual activity pattern. Please verify with your bank.",
+            "reason": "Transaction blocked: Security parameters exceeded. Please contact support.",
             "risk_score": fraud_probability,
             "latency": "sub-second"
         }
-    # Tier 1: Approved (Less than 1% AI Confidence)
+    elif risk_pct >= 10.0:
+        # Tier 3: Moderate Risk (10% - 40%)
+        return {
+            "status": "DECLINED",
+            "reason": "Transaction declined: Unusual activity detected. Please verify via banking app.",
+            "risk_score": fraud_probability,
+            "latency": "sub-second"
+        }
+    elif risk_pct >= 1.07:
+        # Tier 2: The Soft Limit (1.07% - 10%) - Based on your Kaggle threshold!
+        return {
+            "status": "DECLINED",
+            "reason": "Additional verification required. Step-up authentication triggered.",
+            "risk_score": fraud_probability,
+            "latency": "sub-second"
+        }
     else:
+        # Tier 1: Safe (0% - 1.07%)
         return {
             "status": "APPROVED",
             "reason": "Transaction successful.",
