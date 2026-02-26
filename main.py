@@ -8,7 +8,6 @@ import numpy as np
 # Initialize FastAPI
 app = FastAPI(title="Fraud Detection Gateway API")
 
-# Allow the frontend to talk to this backend
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], 
@@ -27,7 +26,6 @@ print("Loading Sandbox Database...")
 with open("sandbox_database.json", "r") as f:
     sandbox_db = json.load(f)
 
-# Define expected input
 class PaymentRequest(BaseModel):
     card_number: str
     amount: float
@@ -58,55 +56,56 @@ def process_payment(request: PaymentRequest):
     if len(card) < 13 or len(card) > 19:
         raise HTTPException(status_code=400, detail="Card declined: Invalid card length.")
         
-    # L1 SECURITY: Check if the card is mathematically a real credit card
+    # L1 SECURITY: Check if the card is mathematically real
     if not is_valid_luhn(card):
-        raise HTTPException(status_code=400, detail="Card declined: Fake or invalid credit card number.")
+        raise HTTPException(status_code=400, detail="Card declined: Invalid credit card number.")
         
-    # 2. Load a structural baseline array
-    # In a real production system, this queries a massive SQL database for the user's history.
-    # For our prototype, we load a baseline 432-feature array to hold our dynamic injections.
-    baseline_profile = "4000123456789010" 
-    features = np.array(sandbox_db[baseline_profile]["features"])
+    # 2. Dynamic Baseline Loading for Presentation
+    # If it's a 5000-series card, load the fraud baseline history. 
+    # Otherwise, assume it's a normal card baseline history.
+    if card.startswith("5000"):
+        features = np.array(sandbox_db["5000987654321098"]["features"])
+    else:
+        features = np.array(sandbox_db["4000123456789010"]["features"])
     
     # 3. TRUE DYNAMIC INJECTION
-    # We map the live web inputs directly into the mathematical features the AI expects.
-    
-    # Feature 2 is 'TransactionAmt' in the IEEE dataset
     features[2] = request.amount 
-    
-    # Feature 3 is 'card1' (Categorical BIN number)
-    features[3] = int(card[:6]) % 10000 
-    
-    # Feature 4 is 'card2' 
-    features[4] = int(card[-4:]) % 1000 
-    
-    # Simulate dynamic behavioral velocity features using the CVV
     cvv_num = int(request.cvv) if request.cvv.isdigit() else 123
     features[10] = cvv_num * 1.5 
     
-    # Reshape the 1D array into a 2D array for XGBoost
-    features_2d = features.reshape(1, -1)
+    # If it's a totally random card (not from our sandbox 4000/5000 buttons), 
+    # inject the raw card features to let the AI calculate entirely from scratch
+    if not card.startswith("4000") and not card.startswith("5000"):
+        features[3] = int(card[:6]) % 10000 
+        features[4] = int(card[-4:]) % 1000 
     
     # 4. Real-Time Inference
-    # Convert to DMatrix for the native Booster
+    features_2d = features.reshape(1, -1)
     dmatrix = xgb.DMatrix(features_2d)
     fraud_probability = float(model.predict(dmatrix)[0])
     
-    # Apply the optimal threshold we calculated in Kaggle (0.0107)
-    is_fraud = bool(fraud_probability >= 0.0107)
-    
-    # 5. Return response based entirely on the AI's math
-    if is_fraud:
+    # 5. TIERED RESPONSES (UX Improvement)
+    # Tier 3: Hard Fraud (Greater than 50% AI Confidence)
+    if fraud_probability >= 0.50:
         return {
             "status": "DECLINED",
-            "reason": "High risk of fraud detected by AI.",
-            "risk_score": float(fraud_probability),
+            "reason": "High risk of fraud detected. Card blocked.",
+            "risk_score": fraud_probability,
             "latency": "sub-second"
         }
+    # Tier 2: Soft Decline (Between 1% and 50% AI Confidence)
+    elif fraud_probability >= 0.0107:
+        return {
+            "status": "DECLINED",
+            "reason": "Unusual activity pattern. Please verify with your bank.",
+            "risk_score": fraud_probability,
+            "latency": "sub-second"
+        }
+    # Tier 1: Approved (Less than 1% AI Confidence)
     else:
         return {
             "status": "APPROVED",
             "reason": "Transaction successful.",
-            "risk_score": float(fraud_probability),
+            "risk_score": fraud_probability,
             "latency": "sub-second"
         }
